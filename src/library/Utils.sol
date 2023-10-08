@@ -12,4 +12,15 @@ library StakingUtils {
 
         accuredReward = fourteenPercent * 10;
     }
+
+    function checkIfUpToOneMonth(
+        uint diffrence
+    ) external pure returns (bool isUpto) {
+        uint secondsInMonth = 2678400;
+        if (diffrence >= secondsInMonth) {
+            isUpto = true;
+        } else {
+            isUpto = false;
+        }
+    }
 }

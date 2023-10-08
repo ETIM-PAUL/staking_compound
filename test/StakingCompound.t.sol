@@ -43,7 +43,7 @@ contract CounterTest is Helpers {
     }
 
     function testAdminCannotStake() external payable {
-        vm.expectRevert(StakingCompound.AdminCantStake.selector);
+        vm.expectRevert(StakingCompound.AdminCantCall.selector);
         stake.stakedEth{value: 1 ether}(staker.isCompound);
     }
 
@@ -51,5 +51,14 @@ contract CounterTest is Helpers {
         swapCaller(callerA);
         bool success = stake.stakedEth{value: 1 ether}(staker.isCompound);
         assertTrue(success);
+    }
+
+    function testClaimTokenNoCompound() external {
+        swapCaller(callerA);
+        bool success = stake.stakedEth{value: 1 ether}(staker.isCompound);
+        vm.warp(1641070800);
+        stake.claimReward();
+        assertGt(stake.balanceOf(msg.sender));
+        assertGt(address.balance, 2);
     }
 }

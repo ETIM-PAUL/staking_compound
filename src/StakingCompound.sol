@@ -5,7 +5,7 @@ import "./interface/IWETH.sol";
 import {StakingUtils} from "./library/Utils.sol";
 
 contract StakingCompound is ERC20 {
-    event ETHStaked(address staker, uint amount, bool isCompound);
+    event ETHStaked(address staker, uint amount);
     event RewardClaimed(address staker, uint amount);
     event CompoundActionTriggered(address trigger, uint amount);
 
@@ -25,12 +25,14 @@ contract StakingCompound is ERC20 {
     mapping(address => Staker) stakers;
 
     uint totalAutoCompoundFee;
+    uint totalStakers;
 
     address weth;
     address admin;
 
     error ZeroEth();
-    error AdminCantStake();
+    error AdminCantCall();
+    error NoCompoundActivated();
 
     // error
 
@@ -39,72 +41,126 @@ contract StakingCompound is ERC20 {
         admin = msg.sender;
     }
 
-    function stakedEth(
-        bool _isCompound
-    ) external payable returns (bool success) {
+    function stakedEth() external payable returns (bool success) {
         if (msg.value == 0) {
             revert ZeroEth();
         }
         if (msg.sender == admin) {
-            revert AdminCantStake();
+            revert AdminCantCall();
         }
-        IWETH(weth).deposit{value: msg.value}();
-
-        Staker storage _staker = stakers[msg.sender];
-
-        if (_staker.stakedAmount == 0) {
-            _staker.stakedTime = block.timestamp;
-            _staker.stakedAmount = msg.value;
-        } else {
-            _staker.stakedAmount += msg.value;
-            //calcaulate accured reward
-            uint difference = block.timestamp - _staker.stakedTime;
-            uint accumulatedReward = StakingUtils.calculateNoCompoundReward(
-                difference,
-                _staker.stakedAmount
-            );
-            _staker.totalReward += accumulatedReward;
-        }
-        _staker.isCompound = _isCompound;
-
-        //mint receipt tokens
-        _mint(msg.sender, msg.value);
-
-        success = true;
-
-        emit ETHStaked(msg.sender, msg.value, _isCompound);
+        bool success = stake(msg.value);
     }
 
-    function claimReward() external {
+    function claimRewardNoCompound() external {
         Staker storage staker = stakers[msg.sender];
         uint difference = block.timestamp - staker.stakedTime;
         uint ethDeposited = staker.stakedAmount;
 
-        uint accumulatedReward;
-
         //re-calculate Accured Rewards since the last staked time
-        if (staker.isCompound) {} else {
-            accumulatedReward = StakingUtils.calculateNoCompoundReward(
-                difference,
-                staker.stakedAmount
-            );
-            staker.totalReward = 0;
-            staker.stakedAmount = 0;
-            staker.stakedTime = 0;
+        uint accumulated_Reward = StakingUtils.calculateNoCompoundReward(
+            difference,
+            staker.stakedAmount
+        );
+        staker.totalReward = 0;
+        staker.stakedAmount = 0;
+        staker.stakedTime = 0;
 
-            //staker is rewarded with ETT (APR 14% at a ration of 1:10)
-            _mint(msg.sender, accumulatedReward);
+        //staker is rewarded with ETT (APR 14% at a ration of 1:10)
+        _mint(msg.sender, accumulated_Reward);
+        _burn(address.this, staker.stakedAmount);
 
-            //give back their deposited eth
-            IWETH(weth).withdraw(ethDeposited);
-            payable(msg.sender).transfer(ethDeposited);
+        emit RewardClaimed(msg.sender, accumulated_Reward);
+
+        //give back their deposited eth
+        IWETH(weth).withdraw(ethDeposited);
+        payable(msg.sender).transfer(ethDeposited);
+    }
+
+    function claimRewardCompound() external {
+        Staker storage staker = stakers[msg.sender];
+
+        //check if the caller has compound activated
+        if (!staker.isCompound) {
+            revert NoCompoundActivated();
         }
+
+        uint difference = block.timestamp - staker.timeAutoCompoundStarted;
+        uint ethDeposited = staker.stakedAmount;
+
+        //re-calculate Accured Rewards since the time auto compound was activated time
+        uint _accumulatedReward = ((staker.stakedAmount * 14 * difference) /
+            100);
+        staker.totalReward = 0;
+        staker.stakedAmount = 0;
+        staker.stakedTime = 0;
+        staker.isCompound = false;
+
+        //staker is rewarded with PRT/100 formula
+        _mint(msg.sender, _accumulatedReward);
+        _burn(address.this, staker.stakedAmount);
+
+        //give back their deposited eth
+        IWETH(weth).withdraw(ethDeposited);
+        payable(msg.sender).transfer(ethDeposited);
+
         emit RewardClaimed(msg.sender, accumulatedReward);
     }
 
-    function triggerCompound() external {}
+    function swapToCompound() external {
+        Staker storage staker = stakers[msg.sender];
+        staker.isCompound = true;
+        staker.timeAutoCompoundStarted = block.timestamp;
+    }
 
-    function stakedCompoundMonthly() internal {}
+    function triggerCompound() external {
+        if (msg.sender == admin) {
+            revert AdminCantCall();
+        }
+        uint difference = block.timestamp - staker.stakedTime;
+
+        for (uint256 index = 0; index < totalStakers; index++) {
+            bool isValid = Utils.checkIfUpToOneMonth(difference);
+            Staker storage staker = stakers[index + 1];
+            if (staker.isCompound && isValid) {
+                implementAutoCompound();
+            }
+        }
+        emit CompoundActionTriggered(msg.sender, totalAutoCompoundFee);
+    }
+
+    function implementAutoCompound() internal {
+        Staker storage staker = stakers[msg.sender];
+        uint difference = block.timestamp - staker.stakedTime;
+        uint accumulatedReward = UtilStakingUtils.calculateNoCompoundReward(
+            difference,
+            staker.stakedAmount
+        );
+        uint amountConvertedToWeth = (accumulatedReward * 10);
+
+        //update Total auto compound fee
+        totalAutoCompoundFee += (staker.stakedAmount / 100);
+
+        //subtract one percent from their initial deposited weth
+        staker.stakedAmount = staker.stakerAmount - (staker.stakedAmount / 100);
+
+        //restake accumulated reward tokens
+        staked(amountConvertedToWeth);
+    }
+
+    function staked(uint amount) internal returns (bool success) {
+        IWETH(weth).deposit{value: amount}();
+
+        Staker storage _staker = stakers[amount];
+        _staker.stakedTime = block.timestamp;
+        _staker.stakedAmount += amount;
+
+        //mint receipt tokens
+        _mint(msg.sender, amount);
+        totalStakers++;
+        success = true;
+
+        emit ETHStaked(msg.sender, amount);
+    }
 
     receive() external payable {}
 }
