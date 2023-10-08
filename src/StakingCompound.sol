@@ -125,11 +125,11 @@ contract StakingCompound is ERC20 {
         }
 
         for (uint256 index = 0; index < triggeredAddresses.length; index++) {
-            Staker storage staker = stakers[index];
+            Staker storage staker = stakers[triggeredAddresses[index]];
             uint difference = block.timestamp - staker.stakedTime;
             bool isValid = StakingUtils.checkIfUpToOneMonth(difference);
             if (staker.isCompound && isValid) {
-                implementAutoCompound(index);
+                implementAutoCompound(triggeredAddresses[index]);
             }
         }
         (bool success, ) = (msg.sender).call{
