@@ -124,7 +124,7 @@ contract StakingCompound is ERC20 {
             revert AdminCantCall();
         }
 
-        for (uint256 index = 0; index < triggeredAddresses; index++) {
+        for (uint256 index = 0; index < triggeredAddresses.length; index++) {
             Staker storage staker = stakers[index];
             uint difference = block.timestamp - staker.stakedTime;
             bool isValid = StakingUtils.checkIfUpToOneMonth(difference);
