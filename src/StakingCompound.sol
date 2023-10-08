@@ -5,8 +5,8 @@ import "./interface/IWETH.sol";
 import {StakingUtils} from "./library/Utils.sol";
 
 contract StakingCompound is ERC20 {
-    event ETHStaked(address staker, uint amount, bool isCompund);
-    event RewardsClaimed(address staker, uint amount);
+    event ETHStaked(address staker, uint amount, bool isCompound);
+    event RewardClaimed(address staker, uint amount);
     event CompoundActionTriggered(address trigger, uint amount);
 
     struct LiquidityPool {
@@ -27,31 +27,39 @@ contract StakingCompound is ERC20 {
     uint totalAutoCompoundFee;
 
     address weth;
+    address admin;
 
     error ZeroEth();
+    error AdminCantStake();
 
     // error
 
     constructor(address _weth) ERC20("ETIM-PAUL Tokens", "ETT") {
-        weth = _weth;
+        weth = address(_weth);
+        admin = msg.sender;
     }
 
-    function stakedEth(bool _isCompound) external payable {
+    function stakedEth(
+        bool _isCompound
+    ) external payable returns (bool success) {
         if (msg.value == 0) {
             revert ZeroEth();
         }
-        uint stakedAmout = IWETH(weth).deposit{value: eth}();
+        if (msg.sender == admin) {
+            revert AdminCantStake();
+        }
+        IWETH(weth).deposit{value: msg.value}();
 
-        Staker _staker = stakers[msg.sender];
+        Staker storage _staker = stakers[msg.sender];
 
         if (_staker.stakedAmount == 0) {
             _staker.stakedTime = block.timestamp;
-            _staker.stakedAmount = stakedAmout;
+            _staker.stakedAmount = msg.value;
         } else {
-            _staker.stakedAmount += stakedAmout;
+            _staker.stakedAmount += msg.value;
             //calcaulate accured reward
-            uint difference = block.timestamp - staker.stakedTime;
-            uint accumulatedReward = calculateAccuredReward(
+            uint difference = block.timestamp - _staker.stakedTime;
+            uint accumulatedReward = StakingUtils.calculateNoCompoundReward(
                 difference,
                 _staker.stakedAmount
             );
@@ -60,17 +68,23 @@ contract StakingCompound is ERC20 {
         _staker.isCompound = _isCompound;
 
         //mint receipt tokens
-        _mint(msg.sender, stakedAmout);
+        _mint(msg.sender, msg.value);
+
+        success = true;
+
+        emit ETHStaked(msg.sender, msg.value, _isCompound);
     }
 
     function claimReward() external {
-        Staker storage staker = staker[msg.sender];
+        Staker storage staker = stakers[msg.sender];
         uint difference = block.timestamp - staker.stakedTime;
-        uint amount = staker.stakedAmount;
+        uint ethDeposited = staker.stakedAmount;
+
+        uint accumulatedReward;
 
         //re-calculate Accured Rewards since the last staked time
         if (staker.isCompound) {} else {
-            uint accumulatedReward = StakingUtils.calculateNoCompoundReward(
+            accumulatedReward = StakingUtils.calculateNoCompoundReward(
                 difference,
                 staker.stakedAmount
             );
@@ -79,16 +93,18 @@ contract StakingCompound is ERC20 {
             staker.stakedTime = 0;
 
             //staker is rewarded with ETT (APR 14% at a ration of 1:10)
-            _mint(msg.sender, accumulateReward);
+            _mint(msg.sender, accumulatedReward);
 
             //give back their deposited eth
-            uint ethDeposited = IWETH(weth).withdraw(staker.stakedAmount);
+            IWETH(weth).withdraw(ethDeposited);
             payable(msg.sender).transfer(ethDeposited);
         }
-        emit RewardClaimed(msg.sender, totalReward);
+        emit RewardClaimed(msg.sender, accumulatedReward);
     }
 
     function triggerCompound() external {}
 
     function stakedCompoundMonthly() internal {}
+
+    receive() external payable {}
 }
