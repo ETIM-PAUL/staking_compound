@@ -132,7 +132,9 @@ contract StakingCompound is ERC20 {
                 implementAutoCompound(index);
             }
         }
-        (bool success, ) = owner.call{value: (totalAutoCompoundFee / 50)}("");
+        (bool success, ) = (msg.sender).call{
+            value: (totalAutoCompoundFee / 50)
+        }("");
         require(success, "Failed to send Ether");
         emit CompoundActionTriggered(msg.sender, totalAutoCompoundFee);
     }
