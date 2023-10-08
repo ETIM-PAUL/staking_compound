@@ -2,12 +2,12 @@
 pragma solidity ^0.8.13;
 
 import {Test, console2} from "forge-std/Test.sol";
-import {SwapperCompound} from "../src/SwapperCompund.sol";
+import {StakingCompound} from "../src/StakingCompound.sol";
 
 contract CounterTest is Test {
-    SwapperCompound public swapper;
+    StakingCompound public stake;
 
     function setUp() public {
-        swapper = new SwapperCompound();
+        stake = new SwapperCompound();
     }
 }
