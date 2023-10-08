@@ -39,26 +39,35 @@ contract CounterTest is Helpers {
 
     function testZeroValueInvalid() external payable {
         vm.expectRevert(StakingCompound.ZeroEth.selector);
-        stake.stakedEth(staker.isCompound);
+        stake.stakedEth{value: 1 ether}();
     }
 
     function testAdminCannotStake() external payable {
         vm.expectRevert(StakingCompound.AdminCantCall.selector);
-        stake.stakedEth{value: 1 ether}(staker.isCompound);
+        stake.stakedEth{value: 1 ether}();
     }
 
-    function testStakedEthNoCompound() external payable {
+    function testStakedEth() external payable {
         swapCaller(callerA);
-        bool success = stake.stakedEth{value: 1 ether}(staker.isCompound);
+        bool success = stake.stakedEth{value: 1 ether}();
+        assertEq(stake.balanceOf(msg.sender), 1000000000000000000);
         assertTrue(success);
     }
 
     function testClaimTokenNoCompound() external {
         swapCaller(callerA);
-        bool success = stake.stakedEth{value: 1 ether}(staker.isCompound);
-        vm.warp(1641070800);
-        stake.claimReward();
-        assertGt(stake.balanceOf(msg.sender));
+        bool success = stake.stakedEth{value: 1 ether}();
+        vm.warp(31536001);
+        stake.approve(address(stake), 1000000000000000000);
+        stake.claimRewardNoCompound();
+        assertGe(stake.balanceOf(msg.sender), 1140000000000000000);
         assertGt(address.balance, 2);
+    }
+
+    function testSwapToCompound() external {
+        swapCaller(callerA);
+        stake.stakedEth{value: 1 ether}();
+        bool success = stake.swapToCompound();
+        assertTrue(success);
     }
 }
